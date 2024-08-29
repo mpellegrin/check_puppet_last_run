@@ -1,0 +1,53 @@
+#!/usr/bin/python3
+
+import time as timelib
+import yaml
+import nagiosplugin
+import argparse
+
+class PuppetLastRunSummary(nagiosplugin.Resource):
+    def __init__(self, filepath):
+        self.filepath = filepath
+
+    def probe(self):
+        with open(self.filepath, 'r') as file:
+            data = yaml.safe_load(file)
+        
+        # Extract relevant metrics
+        time = data.get('time', {})
+        last_run = time.get('last_run', 0)
+        last_run_since = round(timelib.time() - last_run, 0)
+        resources = data.get('resources', {})
+        changes = data.get('changes', {})
+        changes_total = changes.get('total', 0)
+        failures = resources.get('failed', 0)
+
+        return [
+            nagiosplugin.Metric('last_run', last_run, min=0, context='default'),
+            nagiosplugin.Metric('last_run_since', last_run_since, min=0, context='default'),
+            nagiosplugin.Metric('changes', changes_total, min=0, context='default'),
+            nagiosplugin.Metric('failures', failures, min=0, context='default')
+        ]
+
+@nagiosplugin.guarded
+def main():
+    argp = argparse.ArgumentParser(description='Puppet Last Run Summary Nagios Plugin')
+    argp.add_argument('filepath', help='Path to the last_run_summary.yaml file')
+    argp.add_argument('-wlr', '--warning-lastrun-delay', metavar='RANGE', default='0:3600', help='return warning if last_run delay is outside RANGE')
+    argp.add_argument('-clr', '--critical-lastrun-delay', metavar='RANGE', default='0:14400', help='return critical if last_run is outside RANGE')
+    argp.add_argument('-wc', '--warning-changes', metavar='RANGE', default='', help='return warning if changes is outside RANGE')
+    argp.add_argument('-cc', '--critical-changes', metavar='RANGE', default='', help='return critical if changes is outside RANGE')
+    argp.add_argument('-wf', '--warning-failures', metavar='RANGE', default='', help='return warning if failures is outside RANGE')
+    argp.add_argument('-cf', '--critical-failures', metavar='RANGE', default='0:0', help='return critical if failures is outside RANGE')
+    args = argp.parse_args()
+
+    check = nagiosplugin.Check(
+        PuppetLastRunSummary(args.filepath),
+        nagiosplugin.ScalarContext('last_run_since', args.warning_lastrun_delay, args.critical_lastrun_delay),
+        nagiosplugin.ScalarContext('changes', args.warning_changes, args.critical_changes),
+        nagiosplugin.ScalarContext('failures', args.warning_failures, args.critical_failures)
+    )
+    check.main()
+
+if __name__ == '__main__':
+    main()
